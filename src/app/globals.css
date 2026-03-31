@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.hero {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.hero h1 {
+  font-size: 4rem;
+  color: #2cc50d;
+  text-shadow: 500 500 500px #8d0886;
+}
+
+.hero p {
+  margin: 1rem 0;
+  color: #b90d0d;
+}
+
+.hero button {
+  width: 200px;
+  padding: 1rem;
+  background: transparent;
+  border: 1px solid #8a0b31;
+  color: #91c90e;
+  cursor: pointer;
+}
+
+.hero button:hover {
+  background: #00f0ff;
+  color: black;
+}
