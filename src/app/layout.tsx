@@ -13,3 +13,7 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
+
+<div className="bg-red-500 text-white p-10">
+  TESTE
+</div>
