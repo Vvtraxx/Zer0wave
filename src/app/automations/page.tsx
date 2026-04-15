@@ -8,15 +8,30 @@ export default function Automations() {
   const [newAutomation, setNewAutomation] = useState("");
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  // 🔄 buscar do banco
+  const [user, setUser] = useState<any>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
+  // 🔐 pegar usuário
   useEffect(() => {
-    fetchAutomations();
+    async function getUser() {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user);
+      setLoadingUser(false);
+    }
+
+    getUser();
   }, []);
+
+  // 🔄 buscar automações
+  useEffect(() => {
+    if (user) fetchAutomations();
+  }, [user]);
 
   async function fetchAutomations() {
     const { data, error } = await supabase
       .from("automations")
       .select("*")
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -24,12 +39,11 @@ export default function Automations() {
       return;
     }
 
-    if (data) setAutomations(data);
+    setAutomations(data || []);
   }
 
-  // ➕ adicionar no banco
   async function addAutomation() {
-    if (!newAutomation) return;
+    if (!newAutomation || !user) return;
 
     const { data, error } = await supabase
       .from("automations")
@@ -37,6 +51,8 @@ export default function Automations() {
         {
           name: newAutomation,
           prompt: "Descreva o que essa automação deve fazer",
+          active: false,
+          user_id: user.id,
         },
       ])
       .select();
@@ -52,88 +68,62 @@ export default function Automations() {
     }
   }
 
-  // 🔄 toggle (banco)
-  async function toggleAutomation(id: string) {
-    const item = automations.find((a) => a.id === id);
-    if (!item) return;
+  async function deleteAutomation(id: string) {
+    await supabase.from("automations").delete().eq("id", id);
+    setAutomations(automations.filter((a) => a.id !== id));
+  }
 
+  async function toggleAutomation(id: string, current: boolean) {
     await supabase
       .from("automations")
-      .update({ active: !item.active })
+      .update({ active: !current })
       .eq("id", id);
 
     setAutomations(
       automations.map((a) =>
-        a.id === id ? { ...a, active: !a.active } : a
+        a.id === id ? { ...a, active: !current } : a
       )
     );
   }
 
-  // ❌ delete (banco)
-  async function deleteAutomation(id: string) {
-    await supabase.from("automations").delete().eq("id", id);
-
-    setAutomations(automations.filter((a) => a.id !== id));
-  }
-
-  // ✏️ editar prompt (banco)
-  async function updatePrompt(id: string, newPrompt: string) {
-    await supabase
-      .from("automations")
-      .update({ prompt: newPrompt })
-      .eq("id", id);
-
-    setAutomations(
-      automations.map((item) =>
-        item.id === id ? { ...item, prompt: newPrompt } : item
-      )
-    );
-  }
-
-  // 🧠 testar IA
-  async function testAI() {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      body: JSON.stringify({
-        prompt: "Responda como um atendente educado: olá",
-      }),
-    });
-
-    const data = await res.json();
-    alert(data.text);
-  }
-
-  // 🚀 executar automação
   async function runAutomation(item: any) {
     setLoadingId(item.id);
 
     const res = await fetch("/api/ai", {
       method: "POST",
-      body: JSON.stringify({
-        prompt: item.prompt,
-      }),
+      body: JSON.stringify({ prompt: item.prompt }),
     });
 
     const data = await res.json();
 
     setLoadingId(null);
 
-    alert(`Resultado:\n\n${data.text}`);
+    alert(data.text);
   }
 
+  // 🧠 LOADING STATE (ESSENCIAL)
+  if (loadingUser) {
+    return (
+      <div className="text-white p-8 pt-24">
+        Carregando...
+      </div>
+    );
+  }
+
+  // 🔒 NÃO LOGADO
+  if (!user) {
+    return (
+      <div className="text-white p-8 pt-24">
+        Faça login para ver suas automações
+      </div>
+    );
+  }
+
+  // 🚀 APP NORMAL
   return (
     <div className="p-8 pt-24 text-white max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Automations</h1>
 
-      {/* Teste IA */}
-      <button
-        onClick={testAI}
-        className="bg-purple-500 px-4 py-2 rounded mb-6"
-      >
-        Testar IA
-      </button>
-
-      {/* Input */}
       <div className="flex gap-3 mb-6">
         <input
           value={newAutomation}
@@ -150,7 +140,6 @@ export default function Automations() {
         </button>
       </div>
 
-      {/* Lista */}
       <div className="space-y-3">
         {automations.map((item) => (
           <div
@@ -160,14 +149,15 @@ export default function Automations() {
             <div className="w-full">
               <p className="font-medium">{item.name}</p>
 
-              <p className="text-xs text-gray-400 mt-2">Prompt da IA:</p>
-
               <input
                 value={item.prompt}
                 onChange={(e) =>
-                  updatePrompt(item.id, e.target.value)
+                  supabase
+                    .from("automations")
+                    .update({ prompt: e.target.value })
+                    .eq("id", item.id)
                 }
-                className="text-xs bg-zinc-800 p-1 rounded w-full outline-none"
+                className="text-xs bg-zinc-800 p-1 rounded w-full mt-2"
               />
 
               <span
@@ -191,7 +181,9 @@ export default function Automations() {
               </button>
 
               <button
-                onClick={() => toggleAutomation(item.id)}
+                onClick={() =>
+                  toggleAutomation(item.id, item.active)
+                }
                 className="text-sm bg-yellow-400 text-black px-3 py-1 rounded"
               >
                 Toggle
