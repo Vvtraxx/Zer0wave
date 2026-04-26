@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import WorkflowEditor from "@/components/WorkflowEditor";
 
 export default function Automations() {
   const [automations, setAutomations] = useState<any[]>([]);
@@ -11,41 +12,41 @@ export default function Automations() {
   const [user, setUser] = useState<any>(null);
   const [loadingUser, setLoadingUser] = useState(true);
 
-  // 🔐 pegar usuário
+  const [editingPrompts, setEditingPrompts] = useState<any>({});
+  const [selectedAutomation, setSelectedAutomation] = useState<any>(null);
+  const [runs, setRuns] = useState<any[]>([]);
+  const [editingWorkflow, setEditingWorkflow] = useState<any>(null);
+
+  // 🔐 USER
   useEffect(() => {
     async function getUser() {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
       setLoadingUser(false);
     }
-
     getUser();
   }, []);
 
-  // 🔄 buscar automações
+  // 🔄 FETCH
   useEffect(() => {
     if (user) fetchAutomations();
   }, [user]);
 
   async function fetchAutomations() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("automations")
       .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error(error);
-      return;
-    }
-
     setAutomations(data || []);
   }
 
+  // ➕ ADD
   async function addAutomation() {
     if (!newAutomation || !user) return;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("automations")
       .insert([
         {
@@ -53,152 +54,242 @@ export default function Automations() {
           prompt: "Descreva o que essa automação deve fazer",
           active: false,
           user_id: user.id,
+          interval_minutes: 0,
+          workflow: null,
         },
       ])
       .select();
 
-    if (error) {
-      console.error(error);
-      return;
-    }
-
     if (data) {
-      setAutomations([data[0], ...automations]);
+      setAutomations((prev) => [data[0], ...prev]);
       setNewAutomation("");
     }
   }
 
+  // ❌ DELETE
   async function deleteAutomation(id: string) {
     await supabase.from("automations").delete().eq("id", id);
-    setAutomations(automations.filter((a) => a.id !== id));
+    setAutomations((prev) => prev.filter((a) => a.id !== id));
   }
 
+  // 🔄 TOGGLE
   async function toggleAutomation(id: string, current: boolean) {
     await supabase
       .from("automations")
       .update({ active: !current })
       .eq("id", id);
 
-    setAutomations(
-      automations.map((a) =>
+    setAutomations((prev) =>
+      prev.map((a) =>
         a.id === id ? { ...a, active: !current } : a
       )
     );
   }
 
+  // ✍️ PROMPT
+  function handlePromptChange(id: string, value: string) {
+    setEditingPrompts((prev: any) => ({ ...prev, [id]: value }));
+  }
+
+  async function savePrompt(id: string) {
+    const value = editingPrompts[id];
+    if (value === undefined) return;
+
+    await supabase
+      .from("automations")
+      .update({ prompt: value })
+      .eq("id", id);
+
+    setAutomations((prev) =>
+      prev.map((a) =>
+        a.id === id ? { ...a, prompt: value } : a
+      )
+    );
+  }
+
+  // ⏱ INTERVALO
+  async function updateInterval(id: string, value: number) {
+    await supabase
+      .from("automations")
+      .update({ interval_minutes: value })
+      .eq("id", id);
+
+    setAutomations((prev) =>
+      prev.map((a) =>
+        a.id === id ? { ...a, interval_minutes: value } : a
+      )
+    );
+  }
+
+  // 🤖 RUN
   async function runAutomation(item: any) {
     setLoadingId(item.id);
 
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      body: JSON.stringify({ prompt: item.prompt }),
-    });
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: item.prompt }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
+
+      await supabase.from("automation_runs").insert([
+        {
+          automation_id: item.id,
+          user_id: user.id,
+          response: data.text,
+          status: "success",
+        },
+      ]);
+
+      alert(data.text);
+    } catch (err: any) {
+      await supabase.from("automation_runs").insert([
+        {
+          automation_id: item.id,
+          user_id: user.id,
+          status: "error",
+          error: err.message,
+        },
+      ]);
+
+      alert("Erro ao rodar automação");
+    }
 
     setLoadingId(null);
-
-    alert(data.text);
   }
 
-  // 🧠 LOADING STATE (ESSENCIAL)
-  if (loadingUser) {
-    return (
-      <div className="text-white p-8 pt-24">
-        Carregando...
-      </div>
-    );
+  // 📊 RUNS
+  async function fetchRuns(id: string) {
+    const { data } = await supabase
+      .from("automation_runs")
+      .select("*")
+      .eq("automation_id", id)
+      .order("created_at", { ascending: false });
+
+    setRuns(data || []);
   }
 
-  // 🔒 NÃO LOGADO
-  if (!user) {
-    return (
-      <div className="text-white p-8 pt-24">
-        Faça login para ver suas automações
-      </div>
-    );
-  }
+  if (loadingUser) return <div className="text-white p-8 pt-24">Carregando...</div>;
+  if (!user) return <div className="text-white p-8 pt-24">Faça login</div>;
 
-  // 🚀 APP NORMAL
   return (
     <div className="p-8 pt-24 text-white max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Automations</h1>
+      <h1 className="text-2xl mb-6">Automations</h1>
 
-      <div className="flex gap-3 mb-6">
+      {/* ADD */}
+      <div className="flex gap-2 mb-6">
         <input
           value={newAutomation}
           onChange={(e) => setNewAutomation(e.target.value)}
-          placeholder="Nova automação..."
-          className="flex-1 p-2 rounded bg-zinc-900 border border-white/10"
+          className="flex-1 p-2 bg-zinc-900 rounded"
         />
-
-        <button
-          onClick={addAutomation}
-          className="bg-cyan-400 text-black px-4 rounded"
-        >
+        <button onClick={addAutomation} className="bg-cyan-400 px-4 rounded">
           Add
         </button>
       </div>
 
-      <div className="space-y-3">
-        {automations.map((item) => (
-          <div
-            key={item.id}
-            className="flex justify-between items-center bg-zinc-900 p-4 rounded-lg"
-          >
-            <div className="w-full">
-              <p className="font-medium">{item.name}</p>
+      {/* LISTA */}
+      {automations.map((item) => (
+        <div key={item.id} className="bg-zinc-900 p-4 mb-3 rounded">
+          <p>{item.name}</p>
 
-              <input
-                value={item.prompt}
-                onChange={(e) =>
-                  supabase
-                    .from("automations")
-                    .update({ prompt: e.target.value })
-                    .eq("id", item.id)
-                }
-                className="text-xs bg-zinc-800 p-1 rounded w-full mt-2"
-              />
+          <input
+            type="number"
+            value={item.interval_minutes || 0}
+            onChange={(e) =>
+              updateInterval(item.id, Number(e.target.value))
+            }
+            className="mt-2 bg-zinc-800 p-1 rounded w-20"
+          />
 
-              <span
-                className={
-                  item.active
-                    ? "text-green-400 text-sm"
-                    : "text-gray-400 text-sm"
-                }
-              >
-                {item.active ? "Ativo" : "Inativo"}
-              </span>
-            </div>
+          <textarea
+            value={editingPrompts[item.id] ?? item.prompt}
+            onChange={(e) =>
+              handlePromptChange(item.id, e.target.value)
+            }
+            onBlur={() => savePrompt(item.id)}
+            className="w-full mt-2 bg-zinc-800 p-2 rounded"
+          />
 
-            <div className="flex gap-3 ml-4">
-              <button
-                onClick={() => runAutomation(item)}
-                disabled={loadingId === item.id}
-                className="text-sm bg-purple-500 px-3 py-1 rounded"
-              >
-                {loadingId === item.id ? "Rodando..." : "Run"}
-              </button>
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => runAutomation(item)} className="bg-purple-500 px-3 py-1 rounded">
+              Run
+            </button>
 
-              <button
-                onClick={() =>
-                  toggleAutomation(item.id, item.active)
-                }
-                className="text-sm bg-yellow-400 text-black px-3 py-1 rounded"
-              >
-                Toggle
-              </button>
+            <button onClick={() => toggleAutomation(item.id, item.active)} className="bg-yellow-400 px-3 py-1 rounded">
+              Toggle
+            </button>
 
-              <button
-                onClick={() => deleteAutomation(item.id)}
-                className="text-sm bg-red-500 px-3 py-1 rounded"
-              >
-                Delete
-              </button>
-            </div>
+            <button onClick={() => deleteAutomation(item.id)} className="bg-red-500 px-3 py-1 rounded">
+              Delete
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedAutomation(item);
+                fetchRuns(item.id);
+              }}
+              className="bg-blue-500 px-3 py-1 rounded"
+            >
+              Runs
+            </button>
+
+            <button
+              onClick={() => setEditingWorkflow(item)}
+              className="bg-indigo-500 px-3 py-1 rounded"
+            >
+              Workflow
+            </button>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
+
+      {/* DASHBOARD */}
+      {selectedAutomation && (
+        <div className="mt-10 bg-zinc-900 p-6 rounded">
+          <h2>Execuções - {selectedAutomation.name}</h2>
+
+          <button onClick={() => setSelectedAutomation(null)} className="bg-red-500 px-3 py-1 rounded mb-4">
+            Fechar
+          </button>
+
+          {runs.map((run) => (
+            <div key={run.id} className="bg-zinc-800 p-3 mb-2 rounded">
+              <div className="flex justify-between text-xs">
+                <span>{new Date(run.created_at).toLocaleString()}</span>
+                <span>{run.status === "success" ? "🟢" : "🔴"}</span>
+              </div>
+              <p className="mt-2">{run.response || run.error}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* WORKFLOW */}
+      {editingWorkflow && (
+        <div className="mt-10 bg-zinc-900 p-6 rounded">
+          <h2>Workflow - {editingWorkflow.name}</h2>
+
+          <WorkflowEditor
+            value={editingWorkflow.workflow}
+            onChange={async (wf: any) => {
+              await supabase
+                .from("automations")
+                .update({ workflow: wf })
+                .eq("id", editingWorkflow.id);
+            }}
+          />
+
+          <button
+            onClick={() => setEditingWorkflow(null)}
+            className="mt-4 bg-red-500 px-3 py-1 rounded"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

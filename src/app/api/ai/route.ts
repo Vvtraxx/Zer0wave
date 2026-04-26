@@ -1,18 +1,20 @@
-async function testAI() {
+import { NextResponse } from "next/server";
+
+export async function POST(req: Request) {
   try {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      body: JSON.stringify({
-        prompt: "Responda como um atendente educado: olá",
-      }),
+    const { prompt } = await req.json();
+
+    const resposta = `Resposta para: ${prompt}`;
+
+    return NextResponse.json({
+      text: resposta,
     });
-
-    const text = await res.text(); // 👈 ao invés de json
-    console.log(text);
-
-    alert(text);
-  } catch (err) {
+  } catch (err: any) {
     console.error(err);
-    alert("Erro na API");
+
+    return NextResponse.json(
+      { error: "Erro interno" },
+      { status: 500 }
+    );
   }
 }
