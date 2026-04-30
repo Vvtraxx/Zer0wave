@@ -8,6 +8,8 @@ const supabase = createClient(
 );
 
 export async function GET() {
+  const startedAt = Date.now();
+
   try {
     const now = new Date();
 
@@ -18,54 +20,101 @@ export async function GET() {
 
     if (error) throw error;
 
+    const results = [];
+
     for (const auto of automations || []) {
-      if (!auto.interval_minutes) continue;
+      const runStart = Date.now();
 
-      const lastRun = auto.last_run
-        ? new Date(auto.last_run)
-        : null;
+      try {
+        // ⏱ ignorar se não tem intervalo
+        if (!auto.interval_minutes) continue;
 
-      const shouldRun =
-        !lastRun ||
-        now.getTime() - lastRun.getTime() >
-          auto.interval_minutes * 60000;
+        const lastRun = auto.last_run
+          ? new Date(auto.last_run)
+          : null;
 
-      if (!shouldRun) continue;
+        const shouldRun =
+          !lastRun ||
+          now.getTime() - lastRun.getTime() >
+            auto.interval_minutes * 60000;
 
-      let result;
+        if (!shouldRun) continue;
 
-      // 🧠 usa workflow se existir
-      if (auto.workflow) {
-        result = await executeWorkflow(auto.workflow);
-      } else {
-        result = {
-          legacy: `Resposta para: ${auto.prompt}`,
-        };
+        // 🔒 LOCK SIMPLES (evita duplicação)
+        const { data: locked } = await supabase
+          .from("automations")
+          .update({ last_run: now })
+          .eq("id", auto.id)
+          .select()
+          .single();
+
+        if (!locked) continue;
+
+        let result: any;
+        let status = "success";
+        let errorMsg = null;
+
+        try {
+          if (auto.workflow) {
+            result = await executeWorkflow(auto.workflow);
+          } else {
+            result = {
+              legacy: `Resposta para: ${auto.prompt}`,
+            };
+          }
+        } catch (err: any) {
+          status = "error";
+          errorMsg = err.message;
+          result = null;
+        }
+
+        const duration = Date.now() - runStart;
+
+        // 💾 salvar execução COMPLETA
+        await supabase.from("automation_runs").insert([
+          {
+            automation_id: auto.id,
+            user_id: auto.user_id,
+            response: result ? JSON.stringify(result) : null,
+            status,
+            error: errorMsg,
+            duration_ms: duration,
+          },
+        ]);
+
+        results.push({
+          id: auto.id,
+          status,
+          duration,
+        });
+      } catch (err: any) {
+        console.error("Erro em automação:", auto.id, err);
+
+        await supabase.from("automation_runs").insert([
+          {
+            automation_id: auto.id,
+            user_id: auto.user_id,
+            status: "error",
+            error: err.message,
+          },
+        ]);
       }
-
-      // 💾 salvar execução
-      await supabase.from("automation_runs").insert([
-        {
-          automation_id: auto.id,
-          user_id: auto.user_id,
-          response: JSON.stringify(result),
-          status: "success",
-        },
-      ]);
-
-      // 🔄 atualizar last_run
-      await supabase
-        .from("automations")
-        .update({ last_run: now })
-        .eq("id", auto.id);
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      ran: results.length,
+      totalTime: Date.now() - startedAt,
+      results,
+    });
   } catch (err: any) {
-    console.error(err);
+    console.error("CRON ERROR:", err);
 
     return NextResponse.json(
-      { error: err.message },
+      {
+        ok: false,
+        error: err.message,
+      },
       { status: 500 }
     );
   }

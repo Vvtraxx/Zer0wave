@@ -1,82 +1,111 @@
 import { resolveTemplate } from "./template";
 
 export async function executeWorkflow(workflow: any) {
-  if (!workflow?.nodes) return {};
-
   const { nodes, edges } = workflow;
 
   const outputs: Record<string, any> = {};
+  const logs: any[] = [];
 
-  // 🔗 pega próximos nodes
   function getNextNodes(nodeId: string) {
-    return edges
-      .filter((e: any) => e.source === nodeId)
-      .map((e: any) => e.target);
+    return edges.filter((e: any) => e.source === nodeId);
   }
 
-  // 🔎 nodes iniciais (sem entrada)
   const startNodes = nodes.filter(
-    (n: any) =>
-      !edges.some((e: any) => e.target === n.id)
+    (n: any) => !edges.some((e: any) => e.target === n.id)
   );
 
   async function runNode(node: any, input: any) {
-    // 🧠 contexto dinâmico
-    const context: Record<string, any> = {
-      input,
-    };
+    const start = Date.now();
 
-    // adicionar outputs anteriores
-    for (const key in outputs) {
-      context[`node_${key}`] = outputs[key];
+    const context: any = { input };
+    Object.keys(outputs).forEach((k) => {
+      context[`node_${k}`] = outputs[k];
+    });
+
+    let result = input;
+    let status = "success";
+    let error = null;
+
+    try {
+      switch (node.type) {
+        case "trigger":
+          result = { started: true };
+          break;
+
+        case "ai":
+          const prompt = resolveTemplate(
+            node.data?.prompt || "",
+            context
+          );
+          result = `AI: ${prompt}`;
+          break;
+
+        case "http":
+          const url = resolveTemplate(node.data.url, context);
+
+          const res = await fetch(url);
+          result = await res.text();
+          break;
+
+        case "if":
+          const a = resolveTemplate(node.data.a, context);
+          const b = resolveTemplate(node.data.b, context);
+
+          switch (node.data.op) {
+            case "==":
+              result = a == b;
+              break;
+            case "!=":
+              result = a != b;
+              break;
+            case "includes":
+              result = String(a).includes(String(b));
+              break;
+            default:
+              result = false;
+          }
+          break;
+
+        case "action":
+          result = `Action: ${input}`;
+          break;
+      }
+    } catch (err: any) {
+      status = "error";
+      error = err.message;
     }
 
-    let result: any = input;
+    const time = Date.now() - start;
 
-    switch (node.type) {
-      case "trigger":
-        result = "start";
-        break;
-
-      case "ai":
-        const prompt = resolveTemplate(
-          node.data?.prompt || "",
-          context
-        );
-
-        // 🔥 aqui depois você conecta OpenAI
-        result = `AI respondeu: ${prompt}`;
-        break;
-
-      case "action":
-        result = resolveTemplate(
-          "Executando ação com: {{input}}",
-          context
-        );
-        break;
-
-      default:
-        result = input;
-    }
-
-    // 💾 salvar output
     outputs[node.id] = result;
 
-    // 🔁 continuar fluxo
-    const nextIds = getNextNodes(node.id);
+    logs.push({
+      nodeId: node.id,
+      status,
+      input,
+      output: result,
+      error,
+      time,
+      timestamp: new Date().toISOString(),
+    });
 
-    for (const nextId of nextIds) {
-      const nextNode = nodes.find((n: any) => n.id === nextId);
+    const nextEdges = getNextNodes(node.id);
+
+    for (const edge of nextEdges) {
+      if (node.type === "if") {
+        if (String(result) !== edge.label) continue;
+      }
+
+      const nextNode = nodes.find((n: any) => n.id === edge.target);
       if (nextNode) {
         await runNode(nextNode, result);
       }
     }
   }
 
-  // 🚀 start
-  await Promise.all(
-    startNodes.map((n: any) => runNode(n, null))
-  );
+  for (const n of startNodes) {
+    await runNode(n, null);
+  }
 
-  return outputs;
+  return { outputs, logs };
 }
