@@ -1,5 +1,6 @@
 "use client";
 
+import { Handle, Position } from "reactflow";
 import DebugPanel from "@/components/DebugPanel";
 
 export default function IfNode({ data, id }: any) {
@@ -10,11 +11,11 @@ export default function IfNode({ data, id }: any) {
   };
 
   return (
-    <div className="bg-yellow-900 p-3 rounded w-72 min-h-[160px] text-white">
+    <div className="bg-yellow-900 p-3 rounded w-72 text-white relative">
       <p className="font-bold mb-2">🔀 IF</p>
 
       <input
-        placeholder="Valor A (ex: {{input}})"
+        placeholder="Valor A"
         value={data?.a ?? ""}
         onChange={(e) => update("a", e.target.value)}
         className="w-full text-black p-1 rounded mb-2"
@@ -33,13 +34,35 @@ export default function IfNode({ data, id }: any) {
       </select>
 
       <input
-        placeholder="Valor B (ex: sucesso)"
+        placeholder="Valor B"
         value={data?.b ?? ""}
         onChange={(e) => update("b", e.target.value)}
         className="w-full text-black p-1 rounded mb-2"
       />
 
-      {/* 🔥 DEBUG */}
+      {/* 🔥 SAÍDA TRUE */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="true"
+        style={{ top: 40, background: "#22c55e" }}
+      />
+
+      {/* 🔥 SAÍDA FALSE */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="false"
+        style={{ top: 90, background: "#ef4444" }}
+      />
+
+      {/* 🔥 ENTRADA */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="input"
+      />
+
       <DebugPanel debug={data?.debug} />
     </div>
   );

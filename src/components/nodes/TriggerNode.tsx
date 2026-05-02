@@ -2,19 +2,21 @@
 
 import DebugPanel from "@/components/DebugPanel";
 
-export default function TriggerNode({ data, id }: any) {
+export default function TriggerNode({ id, data }: any) {
   const update = (field: string, value: any) => {
-    data?.updateNode?.(id, {
+    data.updateNode(id, {
       [field]: value,
     });
   };
 
+  const type = data.type || "manual";
+
   return (
-    <div className="bg-green-600 text-white p-3 rounded w-64 min-h-[130px]">
+    <div className="bg-green-600 text-white p-3 rounded w-64 min-h-[130px] shadow-lg">
       <p className="font-bold">⚡ Trigger</p>
 
       <select
-        value={data?.type ?? "manual"}
+        value={type}
         onChange={(e) => update("type", e.target.value)}
         className="w-full mt-2 text-black p-1 rounded"
       >
@@ -22,17 +24,17 @@ export default function TriggerNode({ data, id }: any) {
         <option value="cron">Cron</option>
       </select>
 
-      {data?.type === "cron" && (
+      {type === "cron" && (
         <input
           placeholder="*/5 * * * *"
-          value={data?.cron ?? ""}
+          value={data.cron || ""}
           onChange={(e) => update("cron", e.target.value)}
           className="w-full mt-2 text-black p-1 rounded"
         />
       )}
 
       {/* 🔥 DEBUG */}
-      <DebugPanel debug={data?.debug} />
+      <DebugPanel debug={data.debug} />
     </div>
   );
 }

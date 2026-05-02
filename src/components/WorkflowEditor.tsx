@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import ReactFlow, {
   addEdge,
   Background,
@@ -30,46 +30,56 @@ const nodeTypes = {
   if: IfNode,
 };
 
+// 🔥 tipo básico de log (já resolve 90% dos erros)
+type Log = {
+  nodeId: string;
+  time?: number;
+  status?: string;
+  input?: any;
+  output?: any;
+  error?: string;
+};
+
 export default function WorkflowEditor({ value, onChange }: any) {
   const [nodes, setNodes, onNodesChange] = useNodesState(value?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(value?.edges || []);
 
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<Log[]>([]);
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
-  // 🔗 conexão com IF inteligente
-  const onConnect = useCallback(
-    (params: Connection) => {
-      const newEdge: Edge = {
-        ...params,
-        id: Date.now().toString(),
-      };
-
-      const sourceNode = nodes.find((n) => n.id === params.source);
-
-      if (sourceNode?.type === "if") {
-        const branch = prompt("Digite: true ou false");
-
-        if (branch !== "true" && branch !== "false") {
-          alert("Use apenas 'true' ou 'false'");
-          return;
-        }
-
-        newEdge.label = branch;
+  // ✅ logs indexados (performance)
+  const logsMap = useMemo<Record<string, Log>>(() => {
+    const map: Record<string, Log> = {};
+    for (const log of logs) {
+      if (log?.nodeId) {
+        map[log.nodeId] = log;
       }
+    }
+    return map;
+  }, [logs]);
 
-      setEdges((eds) => addEdge(newEdge, eds));
-    },
-    [nodes]
-  );
+  // 🔗 conexão CORRIGIDA (sem erro TS)
+ 
+const onConnect = useCallback((params: Connection) => {
+  if (!params.source || !params.target) return;
 
+  const newEdge: Edge = {
+    id: Date.now().toString(),
+    source: params.source,
+    target: params.target,
+    sourceHandle: params.sourceHandle, // 🔥 ESSENCIAL pro IF
+    targetHandle: params.targetHandle,
+  };
+
+  setEdges((eds) => addEdge(newEdge, eds));
+}, []);
   // 💾 salvar workflow
   useEffect(() => {
     onChange({ nodes, edges });
   }, [nodes, edges]);
 
-  // 🧠 update correto (SEM mutação direta)
+  // 🧠 update seguro
   const updateNodeData = (id: string, newData: any) => {
     setNodes((nds) =>
       nds.map((node) =>
@@ -92,28 +102,11 @@ export default function WorkflowEditor({ value, onChange }: any) {
 
     let data: any = {};
 
-    switch (type) {
-      case "ai":
-        data = { prompt: "" };
-        break;
-
-      case "http":
-        data = {
-          method: "GET",
-          url: "",
-          headers: "",
-          body: "",
-        };
-        break;
-
-      case "if":
-        data = {
-          a: "{{input}}",
-          op: "==",
-          b: "",
-        };
-        break;
-    }
+    if (type === "ai") data = { prompt: "" };
+    if (type === "http")
+      data = { method: "GET", url: "", headers: "", body: "" };
+    if (type === "if")
+      data = { a: "{{input}}", op: "==", b: "" };
 
     setNodes((nds) => [
       ...nds,
@@ -129,7 +122,7 @@ export default function WorkflowEditor({ value, onChange }: any) {
     ]);
   }
 
-  // 🧪 EXECUÇÃO COM TIMELINE VISUAL
+  // 🧪 execução
   async function runWorkflow() {
     setIsRunning(true);
     setLogs([]);
@@ -145,19 +138,24 @@ export default function WorkflowEditor({ value, onChange }: any) {
       });
 
       const data = await res.json();
+      const executionLogs: Log[] = data?.logs || [];
 
-      setLogs(data.logs || []);
+      setLogs(executionLogs);
 
-      // 🎬 animação estilo DevTools
-      for (const log of data.logs) {
+      // 🎬 animação baseada em tempo real
+      for (const log of executionLogs) {
+        if (!log.nodeId) continue;
+
         setActiveNode(log.nodeId);
 
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) =>
+          setTimeout(r, Math.max(300, log.time || 300))
+        );
       }
 
       setActiveNode(null);
     } catch (err) {
-      console.error("Erro:", err);
+      console.error("Erro ao rodar workflow:", err);
     }
 
     setIsRunning(false);
@@ -165,40 +163,25 @@ export default function WorkflowEditor({ value, onChange }: any) {
 
   return (
     <div>
-      {/* 🔥 CONTROLES */}
+      {/* CONTROLES */}
       <div className="flex gap-2 mb-2 flex-wrap">
-        <button
-          onClick={() => createNode("trigger")}
-          className="bg-green-500 px-3 py-1 rounded text-sm"
-        >
+        <button onClick={() => createNode("trigger")} className="bg-green-500 px-3 py-1 rounded text-sm">
           + Trigger
         </button>
 
-        <button
-          onClick={() => createNode("http")}
-          className="bg-blue-500 px-3 py-1 rounded text-sm"
-        >
+        <button onClick={() => createNode("http")} className="bg-blue-500 px-3 py-1 rounded text-sm">
           + HTTP
         </button>
 
-        <button
-          onClick={() => createNode("ai")}
-          className="bg-purple-500 px-3 py-1 rounded text-sm"
-        >
+        <button onClick={() => createNode("ai")} className="bg-purple-500 px-3 py-1 rounded text-sm">
           + AI
         </button>
 
-        <button
-          onClick={() => createNode("if")}
-          className="bg-yellow-500 px-3 py-1 rounded text-sm"
-        >
+        <button onClick={() => createNode("if")} className="bg-yellow-500 px-3 py-1 rounded text-sm">
           + IF
         </button>
 
-        <button
-          onClick={() => createNode("action")}
-          className="bg-indigo-500 px-3 py-1 rounded text-sm"
-        >
+        <button onClick={() => createNode("action")} className="bg-indigo-500 px-3 py-1 rounded text-sm">
           + Action
         </button>
 
@@ -211,24 +194,21 @@ export default function WorkflowEditor({ value, onChange }: any) {
         </button>
       </div>
 
-      {/* 🎛️ EDITOR */}
+      {/* EDITOR */}
       <div className="h-[500px] bg-zinc-900 rounded">
         <ReactFlow
           nodes={nodes.map((node) => {
-            const log = logs.find((l) => l.nodeId === node.id);
+            const log = logsMap[node.id];
 
             return {
               ...node,
-
-              // 🔥 HIGHLIGHT ATIVO
               style:
                 node.id === activeNode
                   ? {
                       border: "2px solid #22c55e",
                       boxShadow: "0 0 10px #22c55e",
                     }
-                  : {},
-
+                  : undefined,
               data: {
                 ...node.data,
                 id: node.id,
@@ -250,7 +230,7 @@ export default function WorkflowEditor({ value, onChange }: any) {
         </ReactFlow>
       </div>
 
-      {/* 🧠 TIMELINE */}
+      {/* TIMELINE */}
       <ExecutionTimeline logs={logs} />
     </div>
   );

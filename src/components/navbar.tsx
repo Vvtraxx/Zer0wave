@@ -6,27 +6,34 @@ import { supabase } from "@/lib/supabase";
 
 export default function Navbar() {
   const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // pega usuário atual
+    let mounted = true;
+
+    // pegar usuário atual
     supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
+      if (mounted) {
+        setUser(data.user);
+        setLoading(false);
+      }
     });
 
-    // escuta mudanças (login/logout)
-    const { data: listener } = supabase.auth.onAuthStateChange(
+    // listener auth
+    const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
       }
     );
 
     return () => {
-      listener.subscription.unsubscribe();
+      mounted = false;
+      authListener.subscription.unsubscribe();
     };
   }, []);
 
   async function login() {
-    const email = prompt("Digite seu email:");
+    const email = window.prompt("Digite seu email:");
 
     if (!email || !email.includes("@")) {
       alert("Email inválido");
@@ -36,7 +43,7 @@ export default function Navbar() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: "http://localhost:3000",
+        emailRedirectTo: window.location.origin, // 🔥 dinâmico
       },
     });
 
@@ -56,6 +63,7 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 w-full bg-black/70 backdrop-blur-md border-b border-white/10 z-20">
       <div className="w-full flex justify-between items-center px-8 py-4 text-white">
 
+        {/* LOGO */}
         <Link
           href="/"
           className="text-xl font-bold text-cyan-400 hover:text-cyan-300 transition"
@@ -63,6 +71,7 @@ export default function Navbar() {
           Zer0wave
         </Link>
 
+        {/* MENU */}
         <div className="hidden md:flex items-center gap-8 text-sm text-gray-300">
           <Link href="/dashboard" className="hover:text-cyan-400 transition">
             Dashboard
@@ -77,7 +86,10 @@ export default function Navbar() {
           </Link>
         </div>
 
-        {user ? (
+        {/* AUTH */}
+        {loading ? (
+          <div className="text-sm text-gray-500">...</div>
+        ) : user ? (
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-300">
               {user.email}
